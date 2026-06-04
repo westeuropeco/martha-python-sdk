@@ -143,6 +143,26 @@ def test_upload_document_429_exhausts_to_backpressure():
             )
 
 
+def test_list_collections_returns_list_and_sends_tenant():
+    def fake(req, timeout=None):
+        assert req.get_method() == "GET"
+        assert req.full_url.endswith("/admin/collections")
+        assert req.headers["X-tenant-id"] == "tenant-1"
+        return _Resp(b'[{"id":"a","name":"A"},{"id":"b","name":"B"}]')
+
+    with patch("urllib.request.urlopen", fake):
+        cols = _client().list_collections()
+    assert [c["id"] for c in cols] == ["a", "b"]
+
+
+def test_list_collections_unwraps_dict_envelope():
+    with patch(
+        "urllib.request.urlopen",
+        lambda req, timeout=None: _Resp(b'{"collections":[{"id":"x"}]}'),
+    ):
+        assert _client().list_collections() == [{"id": "x"}]
+
+
 def test_resolve_approval_puts_decision():
     def fake(req, timeout=None):
         assert req.get_method() == "PUT"
