@@ -220,6 +220,22 @@ class MarthaClient:
             raise MarthaAPIError(502, created, "create-collection returned no id")
         return str(created["id"])
 
+    def list_collections(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
+        """Return the tenant's collections (id, name, slug, parent_collection_id…).
+
+        Used to resolve a placement *path* back to a collection id — the path
+        representation mirrors ``core.drive_tools.list_drive_folders``:
+        ``"/" + "/".join(collection names from the root)``.
+        """
+        result = self.request("GET", "/admin/collections", tenant_id=tenant_id)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            for key in ("collections", "items"):
+                if isinstance(result.get(key), list):
+                    return result[key]
+        return []
+
     def upload_document(
         self,
         collection_id: str,
@@ -297,13 +313,17 @@ class MarthaClient:
         self,
         document_id: str,
         *,
-        collection_id: str,
         target_collection_id: str,
+        collection_id: str | None = None,  # accepted for compat; not in the route path
         tenant_id: str | None = None,
     ) -> Any:
-        path = f"/admin/collections/{collection_id}/documents/{document_id}/move"
+        # Route: POST /api/admin/documents/{document_id}/move (document_router,
+        # prefix /api/admin/documents). The current collection is NOT in the
+        # path — the handler re-homes by document_id + tenant. Body carries the
+        # target collection.
+        path = f"/admin/documents/{document_id}/move"
         return self.request(
-            "PUT", path, json_body={"target_collection_id": target_collection_id}, tenant_id=tenant_id
+            "POST", path, json_body={"target_collection_id": target_collection_id}, tenant_id=tenant_id
         )
 
     # ---- workflow execution -------------------------------------------------
