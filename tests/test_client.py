@@ -163,6 +163,47 @@ def test_list_collections_unwraps_dict_envelope():
         assert _client().list_collections() == [{"id": "x"}]
 
 
+def test_replace_document_content_puts_to_content_route_preserving_id():
+    captured = {}
+
+    def fake(req, timeout=None):
+        captured["method"] = req.get_method()
+        captured["url"] = req.full_url
+        captured["ct"] = req.headers["Content-type"]
+        # Route echoes a DocumentResponse with the unchanged id.
+        return _Resp(b'{"id":"doc-7","filename":"v2.pdf"}')
+
+    with patch("urllib.request.urlopen", fake):
+        doc = _client().replace_document_content(
+            "doc-7", filename="v2.pdf", content=b"corrected", content_type="application/pdf"
+        )
+    assert doc == "doc-7"
+    assert captured["method"] == "PUT"
+    assert captured["url"].endswith("/admin/documents/doc-7/content")
+    assert "multipart/form-data" in captured["ct"]
+
+
+def test_replace_document_content_falls_back_to_path_id_when_body_omits_it():
+    # Contract: the route preserves document_id, so a body without an id still
+    # resolves to the document we replaced (never a new/empty id).
+    with patch("urllib.request.urlopen", lambda req, timeout=None: _Resp(b"{}")):
+        assert (
+            _client().replace_document_content("doc-9", filename="x.pdf", content=b"d")
+            == "doc-9"
+        )
+
+
+def test_replace_document_content_429_exhausts_to_backpressure():
+    def always_429(req, timeout=None):
+        raise _http_error(429, b"busy")
+
+    with patch("urllib.request.urlopen", always_429), patch("time.sleep", lambda *_: None):
+        with pytest.raises(MarthaBackpressure):
+            _client().replace_document_content(
+                "doc-1", filename="x.pdf", content=b"d", backoff_s=(1,)
+            )
+
+
 def test_resolve_approval_puts_decision():
     def fake(req, timeout=None):
         assert req.get_method() == "PUT"

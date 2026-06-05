@@ -236,19 +236,26 @@ class MarthaClient:
                     return result[key]
         return []
 
-    def upload_document(
+    def _multipart_send(
         self,
-        collection_id: str,
+        url: str,
+        method: str,
         *,
         filename: str,
         content: bytes,
-        content_type: str = "application/octet-stream",
-        metadata: dict | None = None,
-        tenant_id: str | None = None,
-        timeout: int = 60,
-        backoff_s: tuple[int, ...] = _DEFAULT_UPLOAD_BACKOFF_S,
-    ) -> str:
-        """Multipart upload; retries the per-tenant 429 ingestion cap with backoff."""
+        content_type: str,
+        metadata: dict | None,
+        tenant_id: str | None,
+        timeout: int,
+        backoff_s: tuple[int, ...],
+        error_label: str,
+    ) -> dict[str, Any]:
+        """Multipart file send (POST/PUT); retries the per-tenant 429 ingestion
+        cap with backoff. Returns the parsed JSON body (``{}`` if empty).
+
+        Shared by ``upload_document`` (create, POST to a collection) and
+        ``replace_document_content`` (in-place revision, PUT on a document).
+        """
         boundary = f"----MarthaSDK{uuid.uuid4().hex}"
         sep = f"--{boundary}".encode("ascii")
         safe = filename.replace('"', "")
@@ -270,7 +277,6 @@ class MarthaClient:
             )
         parts.extend([f"--{boundary}--".encode("ascii"), b""])
         body = b"\r\n".join(parts)
-        url = f"{self.base_url}/admin/collections/{collection_id}/documents"
         headers = self._headers(
             tenant_id,
             {
@@ -283,31 +289,91 @@ class MarthaClient:
         for delay in (0, *backoff_s):
             if delay:
                 time.sleep(delay)
-            req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+            req = urllib.request.Request(url, data=body, method=method, headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     raw = resp.read().decode("utf-8")
-                    payload = json.loads(raw) if raw else {}
-                    break
+                    return json.loads(raw) if raw else {}
             except urllib.error.HTTPError as exc:
                 last = exc
                 if exc.code != 429:
                     detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-                    raise MarthaAPIError(exc.code, detail, "Document upload failed") from exc
+                    raise MarthaAPIError(exc.code, detail, f"{error_label} failed") from exc
             except urllib.error.URLError as exc:
                 raise MarthaUnreachable(f"Could not reach Martha API: {exc.reason}") from exc
-        else:
-            detail = (
-                last.read().decode("utf-8", errors="replace")
-                if last and last.fp
-                else "ingestion capacity exhausted"
-            )
-            raise MarthaBackpressure(429, detail, "Upload exhausted retries on 429")
+        detail = (
+            last.read().decode("utf-8", errors="replace")
+            if last and last.fp
+            else "ingestion capacity exhausted"
+        )
+        raise MarthaBackpressure(429, detail, f"{error_label} exhausted retries on 429")
 
+    def upload_document(
+        self,
+        collection_id: str,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+        metadata: dict | None = None,
+        tenant_id: str | None = None,
+        timeout: int = 60,
+        backoff_s: tuple[int, ...] = _DEFAULT_UPLOAD_BACKOFF_S,
+    ) -> str:
+        """Multipart upload; retries the per-tenant 429 ingestion cap with backoff."""
+        url = f"{self.base_url}/admin/collections/{collection_id}/documents"
+        payload = self._multipart_send(
+            url,
+            "POST",
+            filename=filename,
+            content=content,
+            content_type=content_type,
+            metadata=metadata,
+            tenant_id=tenant_id,
+            timeout=timeout,
+            backoff_s=backoff_s,
+            error_label="Document upload",
+        )
         doc_id = payload.get("id") or payload.get("document_id")
         if not doc_id:
             raise MarthaAPIError(502, payload, "Document upload returned no id")
         return str(doc_id)
+
+    def replace_document_content(
+        self,
+        document_id: str,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+        tenant_id: str | None = None,
+        timeout: int = 60,
+        backoff_s: tuple[int, ...] = _DEFAULT_UPLOAD_BACKOFF_S,
+    ) -> str:
+        """Replace an existing document's bytes in place; returns its ``document_id``.
+
+        Route: ``PUT /admin/documents/{document_id}/content``. Martha preserves
+        the ``document_id`` (and the Drive twin's ``file_id`` for bidirectional
+        sync) and creates a NEW ``DocumentRevision`` when re-ingestion completes.
+        This is the resubmit path for issue #439 Q3 — a new revision on the
+        *same* Document, not a fresh upload. Retries the 429 ingestion cap.
+        """
+        url = f"{self.base_url}/admin/documents/{document_id}/content"
+        payload = self._multipart_send(
+            url,
+            "PUT",
+            filename=filename,
+            content=content,
+            content_type=content_type,
+            metadata=None,
+            tenant_id=tenant_id,
+            timeout=timeout,
+            backoff_s=backoff_s,
+            error_label="Document content replace",
+        )
+        # The route echoes a DocumentResponse; the id is unchanged by contract,
+        # so fall back to the path id if the body omits it.
+        return str(payload.get("id") or payload.get("document_id") or document_id)
 
     def move_document(
         self,
