@@ -407,6 +407,14 @@ class MarthaClient:
     def get_execution(self, execution_id: str) -> dict[str, Any]:
         return self.request("GET", f"/service/executions/{execution_id}") or {}
 
+    def get_document(self, document_id: str, *, tenant_id: str | None = None) -> dict[str, Any]:
+        """Fetch a document's metadata, including ``metadata.google_drive_web_view_link``
+        for Drive-synced docs. Requires a human/agent token (``require_collection_reader``);
+        a raw service-account token is rejected — call with a forwarded user JWT."""
+        return self.request(
+            "GET", f"/admin/documents/{document_id}", tenant_id=tenant_id
+        ) or {}
+
     # ---- approvals ----------------------------------------------------------
     def list_pending_approvals(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
         result = self.request(

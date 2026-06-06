@@ -115,6 +115,19 @@ def test_trigger_workflow_returns_execution_id():
         assert _client().trigger_workflow("wf", {"document_id": "d1"}) == "svc_1"
 
 
+def test_get_document_returns_metadata_with_drive_link():
+    def fake(req, timeout=None):
+        assert req.full_url.endswith("/admin/documents/doc-1")
+        return _Resp(json.dumps({
+            "id": "doc-1",
+            "metadata": {"google_drive_web_view_link": "https://drive.google.com/x"},
+        }).encode())
+
+    with patch("urllib.request.urlopen", fake):
+        doc = _client().get_document("doc-1")
+    assert doc["metadata"]["google_drive_web_view_link"] == "https://drive.google.com/x"
+
+
 def test_create_collection_returns_id():
     with patch("urllib.request.urlopen", lambda req, timeout=None: _Resp(b'{"id":"col-9"}')):
         assert _client().create_collection("intake") == "col-9"
