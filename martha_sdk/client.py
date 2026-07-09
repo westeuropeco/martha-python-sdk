@@ -220,6 +220,16 @@ class MarthaClient:
             raise MarthaAPIError(502, created, "create-collection returned no id")
         return str(created["id"])
 
+    def delete_collection(self, collection_id: str, *, tenant_id: str | None = None) -> None:
+        """Delete a collection (DELETE /admin/collections/{id} → 204).
+
+        Used to reclaim disposable staging collections once their document has
+        been moved elsewhere. Raises MarthaAPIError on 4xx/5xx (e.g. 404 if the
+        collection is already gone) — callers that treat cleanup as best-effort
+        should catch it.
+        """
+        self.request("DELETE", f"/admin/collections/{collection_id}", tenant_id=tenant_id)
+
     def list_collections(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
         """Return the tenant's collections (id, name, slug, parent_collection_id…).
 
