@@ -220,15 +220,26 @@ class MarthaClient:
             raise MarthaAPIError(502, created, "create-collection returned no id")
         return str(created["id"])
 
-    def delete_collection(self, collection_id: str, *, tenant_id: str | None = None) -> None:
+    def delete_collection(
+        self, collection_id: str, *, hard: bool = True, tenant_id: str | None = None
+    ) -> None:
         """Delete a collection (DELETE /admin/collections/{id} → 204).
 
-        Used to reclaim disposable staging collections once their document has
-        been moved elsewhere. Raises MarthaAPIError on 4xx/5xx (e.g. 404 if the
-        collection is already gone) — callers that treat cleanup as best-effort
-        should catch it.
+        ``hard=True`` (default) removes the row and frees the name — required
+        when reclaiming a staging collection, since a soft delete keeps the row
+        (``is_active=False``) and its name still trips the sibling-name
+        uniqueness check. Pass ``hard=False`` for a soft delete.
+
+        Raises MarthaAPIError on 4xx/5xx: 403 if a service account targets a
+        NON-empty collection (service accounts may only delete empty ones), 404
+        if it is already gone. Best-effort callers should catch it.
         """
-        self.request("DELETE", f"/admin/collections/{collection_id}", tenant_id=tenant_id)
+        self.request(
+            "DELETE",
+            f"/admin/collections/{collection_id}",
+            params={"hard": "true" if hard else "false"},
+            tenant_id=tenant_id,
+        )
 
     def list_collections(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
         """Return the tenant's collections (id, name, slug, parent_collection_id…).

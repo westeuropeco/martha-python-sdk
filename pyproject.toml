@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "martha-python-sdk"
-version = "0.1.4"
+version = "0.1.5"
 description = "Python client for the Martha host API — collections, documents, workflow execution, approvals. Used by plugin BFFs, pipelines, and scripts."
 readme = "README.md"
 requires-python = ">=3.10"
