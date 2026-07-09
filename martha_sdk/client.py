@@ -241,6 +241,26 @@ class MarthaClient:
             tenant_id=tenant_id,
         )
 
+    def find_document_by_content_hash(
+        self, content_hash: str, *, tenant_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Return ``{document_id, collection_id}`` of an existing active document
+        in the tenant whose raw-file SHA-256 matches ``content_hash``, else None.
+
+        Cross-source dedup (#439): lets a caller (e.g. a plugin) catch a file
+        already ingested via another path (Drive sync) that its own records
+        can't see. Tenant-scoped by the token.
+        """
+        result = self.request(
+            "GET", f"/admin/documents/by-content-hash/{content_hash}", tenant_id=tenant_id
+        )
+        if isinstance(result, dict) and result.get("exists"):
+            return {
+                "document_id": result.get("document_id"),
+                "collection_id": result.get("collection_id"),
+            }
+        return None
+
     def list_collections(self, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
         """Return the tenant's collections (id, name, slug, parent_collection_id…).
 
