@@ -256,3 +256,22 @@ def test_resolve_approval_puts_decision():
     with patch("urllib.request.urlopen", fake):
         out = _client().resolve_approval("case-1", decision="approved", comment="ok")
     assert out["workflow_execution_id"] == "svc_1"
+
+
+def test_find_document_by_content_hash_returns_match():
+    def fake(req, timeout=None):
+        assert req.get_method() == "GET"
+        assert req.full_url.endswith("/admin/documents/by-content-hash/abc")
+        return _Resp(b'{"exists": true, "document_id": "doc-7", "collection_id": "col-3"}')
+
+    with patch("urllib.request.urlopen", fake):
+        out = _client().find_document_by_content_hash("abc")
+    assert out == {"document_id": "doc-7", "collection_id": "col-3"}
+
+
+def test_find_document_by_content_hash_none_when_absent():
+    with patch(
+        "urllib.request.urlopen",
+        lambda req, timeout=None: _Resp(b'{"exists": false, "document_id": null, "collection_id": null}'),
+    ):
+        assert _client().find_document_by_content_hash("nope") is None
