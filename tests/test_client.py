@@ -133,15 +133,25 @@ def test_create_collection_returns_id():
         assert _client().create_collection("intake") == "col-9"
 
 
-def test_delete_collection_sends_delete_to_collection_path():
+def test_delete_collection_defaults_to_hard():
     def fake(req, timeout=None):
         assert req.get_method() == "DELETE"
-        assert req.full_url.endswith("/admin/collections/col-9")
+        # hard=true by default so the row (and its name) is actually freed
+        assert req.full_url.endswith("/admin/collections/col-9?hard=true")
         assert req.headers["X-tenant-id"] == "tenant-1"
         return _Resp(b"")  # 204 No Content — empty body
 
     with patch("urllib.request.urlopen", fake):
         assert _client().delete_collection("col-9") is None
+
+
+def test_delete_collection_soft_when_hard_false():
+    def fake(req, timeout=None):
+        assert req.full_url.endswith("/admin/collections/col-9?hard=false")
+        return _Resp(b"")
+
+    with patch("urllib.request.urlopen", fake):
+        assert _client().delete_collection("col-9", hard=False) is None
 
 
 def test_delete_collection_propagates_api_error():
