@@ -133,6 +133,26 @@ def test_create_collection_returns_id():
         assert _client().create_collection("intake") == "col-9"
 
 
+def test_delete_collection_sends_delete_to_collection_path():
+    def fake(req, timeout=None):
+        assert req.get_method() == "DELETE"
+        assert req.full_url.endswith("/admin/collections/col-9")
+        assert req.headers["X-tenant-id"] == "tenant-1"
+        return _Resp(b"")  # 204 No Content — empty body
+
+    with patch("urllib.request.urlopen", fake):
+        assert _client().delete_collection("col-9") is None
+
+
+def test_delete_collection_propagates_api_error():
+    def gone(req, timeout=None):
+        raise _http_error(404, b"gone")
+
+    with patch("urllib.request.urlopen", gone):
+        with pytest.raises(MarthaAPIError):
+            _client().delete_collection("missing")
+
+
 def test_upload_document_happy_path():
     def fake(req, timeout=None):
         assert "multipart/form-data" in req.headers["Content-type"]
