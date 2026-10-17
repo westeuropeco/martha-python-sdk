@@ -434,19 +434,26 @@ class MarthaClient:
         )
 
     # ---- workflow execution -------------------------------------------------
-    def trigger_workflow(self, workflow_name: str, user_inputs: dict[str, Any]) -> str:
+    def trigger_workflow(
+        self, workflow_name: str, user_inputs: dict[str, Any], *, tenant_id: str | None = None
+    ) -> str:
+        """Run ``workflow_name`` as this client. ``tenant_id`` names the tenant
+        the run belongs to (``X-Tenant-Id``) — pass the USER's selected tenant
+        from a plugin request, so a tenant-less service account runs the
+        workflow there (martha#1661), not in whatever tenant its token implies."""
         created = self.request(
             "POST",
             f"/service/workflows/{workflow_name}/execute",
             json_body={"user_inputs": user_inputs},
+            tenant_id=tenant_id,
         )
         exec_id = (created or {}).get("execution_id") or (created or {}).get("workflow_id")
         if not exec_id:
             raise MarthaAPIError(502, created, "workflow trigger returned no execution_id")
         return str(exec_id)
 
-    def get_execution(self, execution_id: str) -> dict[str, Any]:
-        return self.request("GET", f"/service/executions/{execution_id}") or {}
+    def get_execution(self, execution_id: str, *, tenant_id: str | None = None) -> dict[str, Any]:
+        return self.request("GET", f"/service/executions/{execution_id}", tenant_id=tenant_id) or {}
 
     def get_document(self, document_id: str, *, tenant_id: str | None = None) -> dict[str, Any]:
         """Fetch a document's metadata, including ``metadata.google_drive_web_view_link``
