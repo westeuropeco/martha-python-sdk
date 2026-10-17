@@ -275,3 +275,38 @@ def test_find_document_by_content_hash_none_when_absent():
         lambda req, timeout=None: _Resp(b'{"exists": false, "document_id": null, "collection_id": null}'),
     ):
         assert _client().find_document_by_content_hash("nope") is None
+
+
+# ---- #1661: a plugin's service account runs the workflow in the USER's tenant
+def _sa_client():
+    c = MarthaClient.for_service_account(
+        "http://martha/api", token_url="http://kc/token", client_id="docupload-sa", client_secret="s"
+    )
+    c.auth.authorization = lambda: "Bearer sa"  # no token fetch in this test
+    return c
+
+
+def test_trigger_workflow_sends_the_selected_tenant():
+    seen = {}
+
+    def fake(req, timeout=None):
+        seen["tenant"] = req.headers.get("X-tenant-id")
+        seen["url"] = req.full_url
+        return _Resp(json.dumps({"execution_id": "svc_2"}).encode())
+
+    with patch("urllib.request.urlopen", fake):
+        assert _sa_client().trigger_workflow("wf", {"a": 1}, tenant_id="tenant-b") == "svc_2"
+    assert seen["url"].endswith("/service/workflows/wf/execute")
+    assert seen["tenant"] == "tenant-b"
+
+
+def test_get_execution_sends_the_selected_tenant():
+    seen = {}
+
+    def fake(req, timeout=None):
+        seen["tenant"] = req.headers.get("X-tenant-id")
+        return _Resp(b'{"status": "completed"}')
+
+    with patch("urllib.request.urlopen", fake):
+        assert _sa_client().get_execution("svc_2", tenant_id="tenant-b") == {"status": "completed"}
+    assert seen["tenant"] == "tenant-b"
